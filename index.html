@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Panel de Control - Agentes CeltIA</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <header>
+        <h1>CeltIA Agent Core</h1>
+        <p>Sistema de Gestión de Agentes Especializados</p>
+    </header>
+
+    <main>
+        <section class="chat-container">
+            <div id="chat-box" class="chat-box">
+                <div class="message system">Sistema listo. Selecciona un agente e introduce una tarea.</div>
+            </div>
+            
+            <div class="input-area">
+                <select id="agent-selector">
+                    <option value="coord">Coordinador (General)</option>
+                    <option value="coder">Especialista en Código</option>
+                    <option value="writer">Redactor Creativo</option>
+                    <option value="analyst">Analista de Datos</option>
+                </select>
+                <textarea id="user-input" placeholder="Escribe la tarea para el agente..."></textarea>
+                <button id="send-btn">Enviar Tarea</button>
+            </div>
+        </section>
+
+        <section class="agents-grid">
+            <div class="agent-card" id="card-coord">
+                <div class="status-dot online"></div>
+                <h3>Coordinador</h3>
+                <p>Gestión de flujo y delegación.</p>
+            </div>
+            <div class="agent-card" id="card-coder">
+                <div class="status-dot"></div>
+                <h3>Programador</h3>
+                <p>JS, HTML, Python y Debugging.</p>
+            </div>
+            <div class="agent-card" id="card-writer">
+                <div class="status-dot"></div>
+                <h3>Redactor</h3>
+                <p>Copywriting y corrección de estilo.</p>
+            </div>
+            <div class="agent-card" id="card-analyst">
+                <div class="status-dot"></div>
+                <h3>Analista</h3>
+                <p>Procesamiento de datos y lógica.</p>
+            </div>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
