@@ -4,6 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Panel de Control - Agentes CeltIA</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -19,7 +22,7 @@
             </div>
             
             <div class="input-area">
-                <select id="agent-selector">
+                <select id="agent-selector" aria-label="Seleccion de agente">
                     <option value="coord">Coordinador (General)</option>
                     <option value="coder">Especialista en Código</option>
                     <option value="writer">Redactor Creativo</option>
@@ -31,6 +34,11 @@
         </section>
 
         <section class="agents-grid">
+            <div class="agent-card" id="card-breogan">
+                <div class="status-dot"></div>
+                <h3>Breogan Engine</h3>
+                <p>Orquestador premium para tareas complejas.</p>
+            </div>
             <div class="agent-card" id="card-coord">
                 <div class="status-dot online"></div>
                 <h3>Coordinador</h3>
@@ -51,9 +59,71 @@
                 <h3>Analista</h3>
                 <p>Procesamiento de datos y lógica.</p>
             </div>
+
+            <section class="breogan-panel">
+                <h3>Configuracion Breogan</h3>
+
+                <label class="inline-toggle" for="premium-toggle">
+                    <span>Usuario premium</span>
+                    <input id="premium-toggle" type="checkbox" />
+                </label>
+
+                <label class="inline-toggle" for="breogan-active">
+                    <span>Motor activo</span>
+                    <input id="breogan-active" type="checkbox" checked />
+                </label>
+
+                <label for="breogan-mode">Modo operativo</label>
+                <select id="breogan-mode">
+                    <option value="analytical">Analitico</option>
+                    <option value="creative">Creativo</option>
+                    <option value="autonomous">Autonomo</option>
+                </select>
+
+                <label for="breogan-priority">Prioridad de ejecucion: <strong id="priority-value">5</strong></label>
+                <input id="breogan-priority" type="range" min="1" max="10" value="5" />
+
+                <label for="breogan-memory">Memoria asignada (MB): <strong id="memory-value">512</strong></label>
+                <input id="breogan-memory" type="range" min="256" max="4096" step="256" value="512" />
+
+                <label for="breogan-token-limit">Limite de tokens premium</label>
+                <input id="breogan-token-limit" type="number" min="256" max="32768" step="256" value="4096" />
+
+                <label for="breogan-execution-mode">Modo de execucion</label>
+                <select id="breogan-execution-mode">
+                    <option value="simulation">Simulacion local</option>
+                    <option value="edge">Supabase Edge Function</option>
+                </select>
+
+                <label for="breogan-function-url">URL da function</label>
+                <input id="breogan-function-url" type="url" placeholder="https://<project>.supabase.co/functions/v1/breogan-orchestrator" />
+
+                <label for="breogan-bridge-port">Porto bridge local</label>
+                <input id="breogan-bridge-port" type="number" min="1" max="65535" value="8081" />
+
+                <label for="breogan-access-token">Access token (JWT)</label>
+                <input id="breogan-access-token" type="password" placeholder="Bearer token para chamada segura" autocomplete="off" />
+
+                <button id="save-breogan-config" type="button">Guardar configuracion</button>
+
+                <section class="breogan-pulse" aria-label="Pulso de Breogan">
+                    <div class="pulse-head">
+                        <h4>Nucleo Breogan</h4>
+                        <span class="pulse-tag">Elite</span>
+                    </div>
+                    <button id="run-pulse-test" type="button">Executar tarefa de alta carga</button>
+                    <p id="pulse-result" class="pulse-result">Sen probas executadas.</p>
+                </section>
+
+                <div class="breogan-log" id="breogan-log">
+                    <div class="log-line">[sistema] Breogan panel listo.</div>
+                </div>
+            </section>
         </section>
     </main>
 
+    <script src="runtime-config.js"></script>
+    <script src="breogan-debug-proxy.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
