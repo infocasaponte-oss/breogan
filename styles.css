@@ -22,9 +22,20 @@ body {
     min-height: 100vh;
 }
 
+body.embedded {
+    min-height: 100%;
+    background:
+        radial-gradient(circle at 0% 0%, rgba(15, 139, 141, 0.08), transparent 38%),
+        linear-gradient(180deg, #faf9f4 0%, #f2efe3 100%);
+}
+
 header {
     text-align: center;
     padding: 2rem;
+}
+
+body.embedded header {
+    display: none;
 }
 
 h1 { color: var(--primary); margin: 0; }
@@ -39,6 +50,12 @@ main {
     gap: 20px;
 }
 
+body.embedded main {
+    max-width: none;
+    min-height: 100vh;
+    padding: 0.85rem;
+}
+
 .chat-container {
     background: rgba(255, 255, 255, 0.85);
     border-radius: 12px;
@@ -48,6 +65,10 @@ main {
     flex-direction: column;
     height: 500px;
     overflow: hidden;
+}
+
+body.embedded .chat-container {
+    height: calc(100vh - 1.7rem);
 }
 
 .chat-box {

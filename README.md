@@ -1,4 +1,5 @@
 # breogan
+
 la creacion e implementacion de agentes ias en distintos sitios ias para ayudarles en sus tareas automatizaciones etc
 
 ## Integracion inicial de Breogan en UI
@@ -115,3 +116,84 @@ Comportamento:
 - Se estás en `localhost`, usa automaticamente `http://localhost:54321/functions/v1/breogan-orchestrator`.
 - Fóra de local, usa a URL configurada no panel.
 - Se non hai URL no panel, pode usar `window.BREOGAN_SUPABASE_URL` como fallback cloud.
+
+## Integracion da pestana Breogan en Rust AI Core
+
+A UI de Breogan soporta agora modo embebido para ser cargada nunha pestana/iframe de Rust AI Core:
+
+- Activa modo embebido con `?embed=1&host=rust-ai-core`.
+- API de integración por `window.postMessage`.
+- Emite eventos de estado e execución para sincronizar o contedor.
+
+Exemplo de URL para a pestana:
+
+- `https://<tu-dominio-cloudflare>/?embed=1&host=rust-ai-core`
+
+Mensaxes de entrada (desde Rust AI Core cara Breogan):
+
+- `breogan-set-agent` con `payload.agent` (`coord|coder|writer|analyst`)
+- `breogan-set-task` con `payload.task`
+- `breogan-run-task` con `payload.task`, `payload.agent`, `payload.taskId`
+- `breogan-apply-config` con `payload.config`
+- `breogan-get-state`
+
+Mensaxes de saída (desde Breogan cara Rust AI Core):
+
+- `breogan-ready`
+- `breogan-state`
+- `breogan-message`
+- `breogan-task-started`
+- `breogan-task-finished`
+- `breogan-task-failed`
+
+Envelope común:
+
+```json
+{
+  "source": "breogan-tab",
+  "type": "breogan-ready",
+  "payload": {},
+  "timestamp": "2026-05-23T00:00:00.000Z"
+}
+```
+
+## Web publica en Cloudflare Pages
+
+Este repo xa queda listo para publicación pública como estático en Cloudflare Pages usando `wrangler`.
+
+Pasos rápidos:
+
+1. Instala/actualiza wrangler con `npm i -g wrangler`.
+1. Autentica con `wrangler login`.
+1. Publica desde o cartafol `breogan/` con `wrangler pages deploy . --project-name breogan-public`.
+
+Tras o deploy, usa a URL pública xerada por Cloudflare como endpoint da pestana Breogan en Rust AI Core.
+
+## Execucion directa no contedor Rust AI Core
+
+Engadiuse un adaptador listo para usar en:
+
+- `rust-ai-core-breogan-tab.integration.js`
+
+Fluxo recomendado para executar a integración:
+
+1. Carga este script no frontend de Rust AI Core.
+1. Crea un contedor para a pestana Breogan: `<div id="breogan-tab-container"></div>`.
+1. Inicializa o adaptador:
+
+```js
+const breoganTab = window.BreoganTabIntegration.init({
+  containerSelector: '#breogan-tab-container',
+  breoganUrl: 'https://7904ab75.breogan-public.pages.dev/?embed=1&host=rust-ai-core',
+  targetOrigin: 'https://7904ab75.breogan-public.pages.dev'
+});
+
+window.addEventListener('breogan-tab-event', (event) => {
+  const data = event.detail;
+  console.log('[Breogan Tab Event]', data.type, data.payload);
+});
+
+breoganTab.runTask('Audita estado do ecosistema', 'analyst', 'task-001');
+```
+
+Con isto, a pestana Breogan queda conectada co contedor Rust AI Core e xa pode enviar/recibir tarefas por `postMessage`.

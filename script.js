@@ -47,6 +47,116 @@ const runtimeHealth = {
     recentLatenciesMs: []
 };
 
+const integrationState = {
+    embedded: false,
+    parentOrigin: '*',
+    lastTaskId: null
+};
+
+function initEmbeddedIntegration() {
+    const params = new URLSearchParams(window.location.search);
+    const requestedEmbed = params.get('embed') === '1' || params.get('host') === 'rust-ai-core';
+    const insideIframe = window.self !== window.top;
+    integrationState.embedded = requestedEmbed || insideIframe;
+    integrationState.parentOrigin = params.get('origin') || '*';
+
+    if (integrationState.embedded) {
+        document.body.classList.add('embedded');
+    }
+}
+
+function postToHost(eventType, payload = {}) {
+    if (!integrationState.embedded || !window.parent || window.parent === window) {
+        return;
+    }
+
+    window.parent.postMessage(
+        {
+            source: 'breogan-tab',
+            type: eventType,
+            payload,
+            timestamp: new Date().toISOString()
+        },
+        integrationState.parentOrigin
+    );
+}
+
+function collectUiState() {
+    return {
+        selectedAgent: agentSelector.value,
+        config: { ...breoganConfig },
+        runtime: {
+            optimizing: runtimeHealth.optimizing,
+            recentLatenciesMs: runtimeHealth.recentLatenciesMs.slice(0, 6)
+        }
+    };
+}
+
+function applyHostConfig(configPatch) {
+    if (!configPatch || typeof configPatch !== 'object') {
+        return;
+    }
+
+    if (typeof configPatch.premiumUser === 'boolean') breoganConfig.premiumUser = configPatch.premiumUser;
+    if (typeof configPatch.active === 'boolean') breoganConfig.active = configPatch.active;
+    if (['analytical', 'creative', 'autonomous'].includes(configPatch.mode)) breoganConfig.mode = configPatch.mode;
+    if (Number.isFinite(Number(configPatch.priority))) breoganConfig.priority = Number(configPatch.priority);
+    if (Number.isFinite(Number(configPatch.memoryMb))) breoganConfig.memoryMb = Number(configPatch.memoryMb);
+    if (Number.isFinite(Number(configPatch.tokenLimit))) breoganConfig.tokenLimit = Number(configPatch.tokenLimit);
+    if (configPatch.executionMode === 'edge' || configPatch.executionMode === 'simulation') breoganConfig.executionMode = configPatch.executionMode;
+    if (typeof configPatch.functionUrl === 'string') breoganConfig.functionUrl = configPatch.functionUrl.trim();
+    if (Number.isFinite(Number(configPatch.bridgePort))) breoganConfig.bridgePort = Number(configPatch.bridgePort);
+    if (typeof configPatch.accessToken === 'string') breoganConfig.accessToken = configPatch.accessToken.trim();
+
+    syncBreoganForm();
+    saveBreoganConfig();
+}
+
+function handleHostMessage(event) {
+    const data = event && event.data;
+    if (!data || data.source !== 'rust-ai-core' || typeof data.type !== 'string') {
+        return;
+    }
+
+    if (integrationState.parentOrigin === '*' && event.origin) {
+        integrationState.parentOrigin = event.origin;
+    }
+
+    if (data.type === 'breogan-set-agent' && typeof data.payload?.agent === 'string') {
+        const requestedAgent = data.payload.agent;
+        if (agents[requestedAgent]) {
+            agentSelector.value = requestedAgent;
+        }
+        return;
+    }
+
+    if (data.type === 'breogan-set-task' && typeof data.payload?.task === 'string') {
+        userInput.value = data.payload.task;
+        return;
+    }
+
+    if (data.type === 'breogan-apply-config' && data.payload?.config) {
+        applyHostConfig(data.payload.config);
+        return;
+    }
+
+    if (data.type === 'breogan-get-state') {
+        postToHost('breogan-state', collectUiState());
+        return;
+    }
+
+    if (data.type === 'breogan-run-task') {
+        if (typeof data.payload?.task === 'string') {
+            userInput.value = data.payload.task;
+        }
+        if (typeof data.payload?.agent === 'string' && agents[data.payload.agent]) {
+            agentSelector.value = data.payload.agent;
+        }
+        integrationState.lastTaskId = data.payload?.taskId || null;
+        handleTask();
+    }
+}
+
 function appendBreoganLog(text) {
     const time = new Date().toLocaleTimeString();
     const div = document.createElement('div');
@@ -581,6 +691,13 @@ function addMessage(text, sender, type) {
     div.innerHTML = `<strong>${sender}:</strong> <br> ${text}`;
     chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
+
+    postToHost('breogan-message', {
+        sender,
+        type,
+        text,
+        taskId: integrationState.lastTaskId
+    });
 }
 
 function updateAgentStatus(agentId, status) {
@@ -610,6 +727,11 @@ async function handleTask() {
     // Mensaje del usuario
     addMessage(text, 'Tú', 'user');
     userInput.value = '';
+    postToHost('breogan-task-started', {
+        taskId: integrationState.lastTaskId,
+        task: text,
+        agent: agentKey
+    });
 
     // Estado del agente
     updateAgentStatus(agentKey, 'working');
@@ -653,9 +775,22 @@ async function handleTask() {
         } catch (error) {
             addMessage(`Erro Breogan: ${error.message}`, 'Sistema', 'system');
             appendBreoganLog(`Erro de delegacion: ${error.message}`);
+            postToHost('breogan-task-failed', {
+                taskId: integrationState.lastTaskId,
+                task: text,
+                agent: agentKey,
+                error: error.message
+            });
         } finally {
             updateAgentStatus('breogan', 'online');
             updateAgentStatus(agentKey, 'online');
+            postToHost('breogan-task-finished', {
+                taskId: integrationState.lastTaskId,
+                task: text,
+                agent: agentKey,
+                delegated: true
+            });
+            integrationState.lastTaskId = null;
         }
         return;
     }
@@ -664,6 +799,13 @@ async function handleTask() {
         const response = buildFallbackResponse(agentKey, text);
         addMessage(response, agent.name, 'agent');
         updateAgentStatus(agentKey, 'online');
+        postToHost('breogan-task-finished', {
+            taskId: integrationState.lastTaskId,
+            task: text,
+            agent: agentKey,
+            delegated: false
+        });
+        integrationState.lastTaskId = null;
     }, 1500);
 }
 
@@ -731,3 +873,6 @@ userInput.addEventListener('keypress', (e) => {
 
 loadBreoganConfig();
 appendBreoganLog('Orquestador disponible para enrutamiento premium.');
+initEmbeddedIntegration();
+window.addEventListener('message', handleHostMessage);
+postToHost('breogan-ready', collectUiState());
