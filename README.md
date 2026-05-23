@@ -6,17 +6,17 @@ la creacion e implementacion de agentes ias en distintos sitios ias para ayudarl
 Se implemento una primera integracion funcional en la app estatica con estos elementos:
 
 - Panel de configuracion Breogan con parametros operativos:
-	- Activacion del motor
-	- Estado de usuario premium
-	- Modo (`analytical`, `creative`, `autonomous`)
-	- Prioridad de ejecucion
-	- Memoria asignada en MB
-	- Limite de tokens premium
+  - Activacion del motor
+  - Estado de usuario premium
+  - Modo (`analytical`, `creative`, `autonomous`)
+  - Prioridad de ejecucion
+  - Memoria asignada en MB
+  - Limite de tokens premium
 - Persistencia de configuracion en `localStorage` (clave `breogan.service.config.v1`).
 - Consola de eventos Breogan en tiempo real dentro del panel.
 - Enrutamiento inteligente de tareas complejas:
-	- Si la tarea es compleja y el usuario es premium, se delega al motor Breogan.
-	- Si no, responde el agente seleccionado por flujo estandar.
+  - Si la tarea es compleja y el usuario es premium, se delega al motor Breogan.
+  - Si no, responde el agente seleccionado por flujo estandar.
 
 ## Criterio actual de complejidad
 
@@ -71,14 +71,23 @@ Se a tarefa e complexa e o usuario e premium, delegase no servizo seleccionado. 
 ## Despregue rapido da function
 
 1. Crear a taboa e politicas no SQL Editor con `supabase/sql/breogan_tasks.sql`.
-2. Despregar a function:
-	- `supabase functions deploy breogan-orchestrator`
-3. Configurar secrets se fai falta:
-	- `SUPABASE_URL`
-	- `SUPABASE_ANON_KEY`
-4. No panel web, poñer:
-	- URL: `https://<project-ref>.supabase.co/functions/v1/breogan-orchestrator`
-	- JWT dun usuario autenticado premium/admin
+1. Despregar a function con `supabase functions deploy breogan-orchestrator`.
+1. Configurar secrets se fai falta: `SUPABASE_URL` e `SUPABASE_ANON_KEY`.
+1. No panel web, poñer a URL `https://<project-ref>.supabase.co/functions/v1/breogan-orchestrator` e un JWT dun usuario autenticado premium/admin.
+
+## Proba E2E cloud (workspace)
+
+Estado actual (produción):
+
+- Function con verificación JWT activa no gateway.
+- Secret remoto `BREOGAN_DEV_BYPASS_AUTH=false`.
+
+Comportamento esperado:
+
+- Sen `Authorization` devolve `401`.
+- Con `Authorization: Bearer <jwt>` válido (usuario premium/admin) procesa tarefa e audita en `public.breogan_tasks`.
+
+Nota técnica: o modo bridge/bypass úsase só para depuración puntual e non debe quedar activo en produción.
 
 ## Entorno local profesional (VS Code Tasks)
 
@@ -88,8 +97,10 @@ Engadiuse a task runner en:
 
 Inclue:
 
-- `Servidor Local Breogan (CORS Real)` para arrancar Vite en `http://localhost:5173`.
+- `Servidor Local Breogan (CORS Real)` para arrancar Vite en `http://localhost:5174`.
 - `Supabase Edge Functions Local` para servir `breogan-orchestrator` en `http://localhost:54321`.
+
+Nota: a UI local mostra o título `Panel de Control - Agentes CeltIA` (páxina de investigación/axentes).
 
 Co atallo `Ctrl+Shift+B` podes lanzar a task por defecto e probar o frontend en condicións reais de navegador.
 
