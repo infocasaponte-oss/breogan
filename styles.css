@@ -41,6 +41,20 @@ body.embedded header {
 h1 { color: var(--primary); margin: 0; }
 p { margin-top: 0.5rem; }
 
+.brand-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.brand-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    box-shadow: 0 6px 16px rgba(8, 18, 12, 0.28);
+    object-fit: cover;
+}
+
 main {
     width: 100%;
     max-width: 1120px;
@@ -263,4 +277,9 @@ button:hover { opacity: 0.9; }
     .agents-grid { flex-direction: column; overflow-x: visible; padding-bottom: 10px; }
     .agent-card { min-width: 150px; }
     .chat-container { height: 460px; }
+
+    .brand-icon {
+        width: 34px;
+        height: 34px;
+    }
 }

@@ -17,6 +17,114 @@ type ActorContext = {
   authMode: "jwt" | "bridge";
 };
 
+async function runOllamaInference(taskType: string, payload: Record<string, unknown>) {
+  const ollamaBaseUrl = (Deno.env.get("OLLAMA_BASE_URL") ?? "http://127.0.0.1:11434").replace(/\/$/, "");
+  const ollamaModel = Deno.env.get("OLLAMA_MODEL") ?? "llama3:8b";
+  const prompt = typeof payload.prompt === "string"
+    ? payload.prompt
+    : JSON.stringify(payload);
+
+  const response = await fetch(`${ollamaBaseUrl}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: ollamaModel,
+      prompt: `You are Breogan orchestrator. Respond in Galician/Spanish mixed style, concise and technical when needed. Task type: ${taskType}. User request: ${prompt}`,
+      stream: false,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Ollama error ${response.status}: ${body.slice(0, 240)}`);
+  }
+
+  const json = await response.json();
+  const answer = typeof json?.response === "string" ? json.response.trim() : "";
+  if (!answer) {
+    throw new Error("Ollama returned empty response");
+  }
+
+  return {
+    provider: "ollama",
+    model: ollamaModel,
+    answer,
+  };
+}
+
+async function runOpenAiCompatibleInference(taskType: string, payload: Record<string, unknown>) {
+  const apiKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+  if (!apiKey) {
+    throw new Error("LOVABLE_API_KEY is not configured");
+  }
+
+  const endpoint = (Deno.env.get("LOVABLE_BASE_URL") ?? "https://api.openai.com/v1/chat/completions").replace(/\/$/, "");
+  const model = Deno.env.get("LOVABLE_MODEL") ?? "gpt-4o-mini";
+  const prompt = typeof payload.prompt === "string"
+    ? payload.prompt
+    : JSON.stringify(payload);
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: "You are Breogan orchestrator. Keep responses practical and concise." },
+        { role: "user", content: `Task type: ${taskType}. Request: ${prompt}` },
+      ],
+      temperature: 0.2,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`OpenAI-compatible error ${response.status}: ${body.slice(0, 240)}`);
+  }
+
+  const json = await response.json();
+  const answer = json?.choices?.[0]?.message?.content;
+  if (typeof answer !== "string" || !answer.trim()) {
+    throw new Error("OpenAI-compatible backend returned empty response");
+  }
+
+  return {
+    provider: "openai-compatible",
+    model,
+    answer: answer.trim(),
+  };
+}
+
+async function runBreoganInference(taskType: string, payload: Record<string, unknown>) {
+  const preferred = (Deno.env.get("BREOGAN_AI_PROVIDER") ?? "ollama").toLowerCase();
+  const hasOpenAiKey = Boolean((Deno.env.get("LOVABLE_API_KEY") ?? "").trim());
+
+  if (preferred === "openai") {
+    if (!hasOpenAiKey) {
+      return await runOllamaInference(taskType, payload);
+    }
+
+    try {
+      return await runOpenAiCompatibleInference(taskType, payload);
+    } catch (_error) {
+      return await runOllamaInference(taskType, payload);
+    }
+  }
+
+  try {
+    return await runOllamaInference(taskType, payload);
+  } catch (ollamaError) {
+    if (!hasOpenAiKey) {
+      throw ollamaError;
+    }
+
+    return await runOpenAiCompatibleInference(taskType, payload);
+  }
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -97,10 +205,12 @@ serve(async (req) => {
     const processingTime = actor.isPremium ? 200 : 1000;
     await sleep(processingTime);
 
-    // Placeholder for real Breogan execution.
+    const inference = await runBreoganInference(taskType, payload);
     const result = {
       status: "success",
-      data: "Procesamento Breogan completado",
+      data: inference.answer,
+      provider: inference.provider,
+      model: inference.model,
     };
 
     const latencyMs = performance.now() - startTime;

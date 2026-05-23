@@ -47,6 +47,13 @@ const runtimeHealth = {
     recentLatenciesMs: []
 };
 
+const conversationState = {
+    lastUserTask: '',
+    lastEffectiveTask: '',
+    lastAgent: 'coord',
+    history: []
+};
+
 const integrationState = {
     embedded: false,
     parentOrigin: '*',
@@ -245,10 +252,44 @@ function loadBreoganConfig() {
 }
 
 function estimateComplexity(text) {
-    const heavyPattern = /(auditoria|refactor|arquitectura|optimiza|migracion|debug|pipeline|microservicio|edge function|socket|supabase|bff|rust)/i;
+    const heavyPattern = /(auditoria|refactor|arquitectura|optimiza|migracion|debug|pipeline|microservicio|edge function|socket|supabase|bff|rust|vulnerab|segur|pentest|cve|ataque)/i;
     const hasHeavyIntent = heavyPattern.test(text);
     const lengthScore = text.length > 260;
     return hasHeavyIntent || lengthScore;
+}
+
+function isSecurityAssessmentRequest(text) {
+    return /(vulnerab|segur|pentest|cve|ataque|auditor[ií]a de seguridad|security assessment|owasp)/i.test(text);
+}
+
+function isCollaborativeRequest(text) {
+    return /(todos os axentes|todos los agentes|equipo completo|multiagente|pon a todos|activar todos)/i.test(text);
+}
+
+function isAffirmativeFollowUp(text) {
+    const normalized = text.trim().toLowerCase();
+    const shortFollowUps = ['adiante', 'adelante', 'dale', 'continua', 'continúa', 'sigue', 'ok', 'vale', 'go'];
+    return shortFollowUps.includes(normalized) || (normalized.length <= 12 && /^(ok|go|si|sí)\b/.test(normalized));
+}
+
+function resolveEffectiveTask(rawText) {
+    if (isAffirmativeFollowUp(rawText) && conversationState.lastEffectiveTask) {
+        return conversationState.lastEffectiveTask;
+    }
+    return rawText;
+}
+
+function rememberConversation(userText, effectiveText, agentKey) {
+    conversationState.lastUserTask = userText;
+    conversationState.lastEffectiveTask = effectiveText;
+    conversationState.lastAgent = agentKey;
+    conversationState.history.unshift({
+        at: Date.now(),
+        userText,
+        effectiveText,
+        agentKey
+    });
+    conversationState.history = conversationState.history.slice(0, 10);
 }
 
 function buildBreoganResponse(taskText, delegatedAgentName) {
@@ -262,6 +303,32 @@ function buildBreoganResponse(taskText, delegatedAgentName) {
     return `${modeLabel}: tarea delegada desde ${delegatedAgentName}.\n` +
         `Prioridad ${breoganConfig.priority}/10 | Memoria ${breoganConfig.memoryMb}MB | Limite ${breoganConfig.tokenLimit} tokens.\n` +
         `Resumen inicial: "${safePrompt}${taskText.length > 140 ? '...' : ''}"`;
+}
+
+function extractBreoganResultText(serviceResult) {
+    const raw = serviceResult && serviceResult.raw ? serviceResult.raw : null;
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+
+    if (typeof raw.result === 'string') {
+        return raw.result;
+    }
+
+    if (raw.result && typeof raw.result === 'object') {
+        if (typeof raw.result.data === 'string' && raw.result.data.trim()) {
+            return raw.result.data.trim();
+        }
+        if (typeof raw.result.answer === 'string' && raw.result.answer.trim()) {
+            return raw.result.answer.trim();
+        }
+    }
+
+    if (typeof raw.data === 'string' && raw.data.trim()) {
+        return raw.data.trim();
+    }
+
+    return null;
 }
 
 function isAuditRequest(text) {
@@ -297,16 +364,56 @@ function buildAuditResponse(taskText, delegatedAgentName) {
 }
 
 function buildFallbackResponse(agentKey, taskText) {
+    if (isSecurityAssessmentRequest(taskText)) {
+        const basePlan = [
+            'Plan seguro de avaliación (sen dano no sistema):',
+            '1. Descubrimento pasivo: fingerprint de versións, headers, TLS e superficie exposta.',
+            '2. Escaneo non intrusivo: OWASP ZAP en modo pasivo + revisión de configuración.',
+            '3. Contraste de risco: mapear achados a OWASP Top 10 e priorizar por impacto/probabilidade.',
+            '4. Informe final: vulnerabilidade, evidencia, severidade, risco e recomendación de mitigación.',
+            '5. Validación: repetir comprobación tras aplicar correccións para confirmar peche do risco.'
+        ].join('\n');
+
+        if (isCollaborativeRequest(taskText)) {
+            return [
+                'Activada orquestración multi-axente para auditoría de vulnerabilidades.',
+                'Coordinador: define alcance, ventá de execución e regras de non impacto.',
+                'Programador: prepara scripts de comprobación segura e recollida de evidencias.',
+                'Analista: clasifica riscos (OWASP/CVSS) e prioriza remediación.',
+                'Redactor: compón o informe executivo + técnico para entrega.',
+                basePlan
+            ].join('\n');
+        }
+
+        return basePlan;
+    }
+
     switch (agentKey) {
     case 'coder':
-        return `He revisado tu petición y te propongo una implementación concreta: ${taskText}`;
+        return [
+            'Proposta técnica inicial preparada.',
+            `Obxectivo: ${taskText}`,
+            'Seguinte paso: definimos entrada/saída, validación e execución por fases con rollback seguro.'
+        ].join('\n');
     case 'writer':
-        return `Borrador generado para la petición: ${taskText}`;
+        return [
+            'Borrador operativo xerado.',
+            `Tema: ${taskText}`,
+            'Podo entregalo en formato executivo, técnico ou mixto segundo audiencia.'
+        ].join('\n');
     case 'analyst':
         return isAuditRequest(taskText)
             ? buildAuditResponse(taskText, agents[agentKey].name)
-            : `Análisis inicial completado sobre: ${taskText}`;
+            : `Análise inicial completada sobre: ${taskText}\nSeguinte paso: métricas, hipótese e plan de validación.`;
     default:
+        if (isCollaborativeRequest(taskText)) {
+            return [
+                'Coordinación de equipo activada.',
+                `Tarefa: ${taskText}`,
+                'Asignación: Programador (execución), Analista (validación), Redactor (entrega), Coordinador (seguimento).'
+            ].join('\n');
+        }
+
         return isAuditRequest(taskText)
             ? buildAuditResponse(taskText, agents[agentKey].name)
             : `Recibido. Voy a coordinar esta tarea con el equipo especializado y concretar los siguientes pasos.`;
@@ -721,6 +828,7 @@ async function handleTask() {
     const text = userInput.value.trim();
     const agentKey = agentSelector.value;
     const agent = agents[agentKey];
+    const effectiveTaskText = resolveEffectiveTask(text);
 
     if (!text) return;
 
@@ -729,16 +837,18 @@ async function handleTask() {
     userInput.value = '';
     postToHost('breogan-task-started', {
         taskId: integrationState.lastTaskId,
-        task: text,
+        task: effectiveTaskText,
         agent: agentKey
     });
+
+    rememberConversation(text, effectiveTaskText, agentKey);
 
     // Estado del agente
     updateAgentStatus(agentKey, 'working');
 
     const shouldDelegateToBreogan =
         breoganConfig.active &&
-        (breoganConfig.premiumUser || isAuditRequest(text) || isHealthRequest(text) || estimateComplexity(text));
+        (breoganConfig.premiumUser || isAuditRequest(effectiveTaskText) || isHealthRequest(effectiveTaskText) || estimateComplexity(effectiveTaskText));
 
     if (shouldDelegateToBreogan) {
         updateAgentStatus('breogan', 'working');
@@ -749,7 +859,7 @@ async function handleTask() {
         try {
             const taskType = agentKey === 'analyst' ? 'analysis' : agentKey === 'coder' ? 'automation' : 'heavy-compute';
             const payload = {
-                prompt: text,
+                prompt: effectiveTaskText,
                 delegatedAgent: agentKey,
                 mode: breoganConfig.mode,
                 priority: breoganConfig.priority,
@@ -761,11 +871,12 @@ async function handleTask() {
                 ? await callBreoganService(taskType, payload)
                 : await simulateBreoganService(taskType, payload);
 
+            const realEdgeNarrative = extractBreoganResultText(serviceResult);
             const response = isHealthRequest(text)
-                ? await buildHealthSummary(text, agent.name, serviceResult)
-                : isAuditRequest(text)
-                    ? buildAuditResponse(text, agent.name)
-                    : buildBreoganResponse(text, agent.name);
+                ? await buildHealthSummary(effectiveTaskText, agent.name, serviceResult)
+                : isAuditRequest(effectiveTaskText)
+                    ? buildAuditResponse(effectiveTaskText, agent.name)
+                    : (realEdgeNarrative || buildBreoganResponse(effectiveTaskText, agent.name));
             addMessage(response, 'Breogan', 'breogan');
             addMessage('Coordinacion completada. El equipo ya tiene el plan de ejecucion.', 'Coordinador', 'agent');
             appendBreoganLog(
@@ -777,7 +888,7 @@ async function handleTask() {
             appendBreoganLog(`Erro de delegacion: ${error.message}`);
             postToHost('breogan-task-failed', {
                 taskId: integrationState.lastTaskId,
-                task: text,
+                task: effectiveTaskText,
                 agent: agentKey,
                 error: error.message
             });
@@ -786,7 +897,7 @@ async function handleTask() {
             updateAgentStatus(agentKey, 'online');
             postToHost('breogan-task-finished', {
                 taskId: integrationState.lastTaskId,
-                task: text,
+                task: effectiveTaskText,
                 agent: agentKey,
                 delegated: true
             });
@@ -796,12 +907,12 @@ async function handleTask() {
     }
 
     setTimeout(() => {
-        const response = buildFallbackResponse(agentKey, text);
+        const response = buildFallbackResponse(agentKey, effectiveTaskText);
         addMessage(response, agent.name, 'agent');
         updateAgentStatus(agentKey, 'online');
         postToHost('breogan-task-finished', {
             taskId: integrationState.lastTaskId,
-            task: text,
+            task: effectiveTaskText,
             agent: agentKey,
             delegated: false
         });
