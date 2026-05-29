@@ -1,16 +1,21 @@
 const agents = {
     breogan: { name: "Breogan", role: "Orquestacion", color: "#f25f5c" },
-    coord: { name: "Coordinador", role: "Gestión", color: "#2d7a4a" },
-    coder: { name: "Programador", role: "Código", color: "#1976d2" },
-    writer: { name: "Redactor", role: "Contenido", color: "#d32f2f" },
-    analyst: { name: "Analista", role: "Datos", color: "#fbc02d" }
+    canteiro: { name: "Canteiro", role: "Automatismos", color: "#2d7a4a" },
+    arquiveiro: { name: "Arquiveiro", role: "Memoria", color: "#1976d2" },
+    vixiante: { name: "Vixiante", role: "Auditoria", color: "#fbc02d" }
+};
+
+const AGENT_ALIASES = {
+    coord: 'canteiro',
+    coder: 'canteiro',
+    writer: 'arquiveiro',
+    analyst: 'vixiante'
 };
 
 const chatBox = document.getElementById('chat-box');
 const userInput = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
 const agentSelector = document.getElementById('agent-selector');
-const premiumToggle = document.getElementById('premium-toggle');
 const breoganActive = document.getElementById('breogan-active');
 const breoganMode = document.getElementById('breogan-mode');
 const breoganPriority = document.getElementById('breogan-priority');
@@ -26,17 +31,19 @@ const memoryValue = document.getElementById('memory-value');
 const breoganLog = document.getElementById('breogan-log');
 const runPulseTestBtn = document.getElementById('run-pulse-test');
 const pulseResult = document.getElementById('pulse-result');
+const refreshTasksBtn = document.getElementById('refresh-tasks');
+const tasksStatus = document.getElementById('tasks-status');
+const tasksList = document.getElementById('tasks-list');
 
 const BREOGAN_CONFIG_KEY = 'breogan.service.config.v1';
 
 const breoganConfig = {
-    premiumUser: false,
     active: true,
     mode: 'analytical',
     priority: 5,
     memoryMb: 512,
     tokenLimit: 4096,
-    executionMode: 'simulation',
+    executionMode: 'edge',
     functionUrl: '',
     bridgePort: 8081,
     accessToken: ''
@@ -47,10 +54,15 @@ const runtimeHealth = {
     recentLatenciesMs: []
 };
 
+const taskHistoryState = {
+    loading: false,
+    items: []
+};
+
 const conversationState = {
     lastUserTask: '',
     lastEffectiveTask: '',
-    lastAgent: 'coord',
+    lastAgent: 'canteiro',
     history: []
 };
 
@@ -72,6 +84,23 @@ function initEmbeddedIntegration() {
     }
 }
 
+function normalizeAgentKey(agentKey) {
+    if (typeof agentKey !== 'string') {
+        return null;
+    }
+
+    const trimmed = agentKey.trim();
+    if (!trimmed) {
+        return null;
+    }
+
+    if (agents[trimmed]) {
+        return trimmed;
+    }
+
+    return AGENT_ALIASES[trimmed] || null;
+}
+
 function postToHost(eventType, payload = {}) {
     if (!integrationState.embedded || !window.parent || window.parent === window) {
         return;
@@ -90,7 +119,7 @@ function postToHost(eventType, payload = {}) {
 
 function collectUiState() {
     return {
-        selectedAgent: agentSelector.value,
+        selectedAgent: normalizeAgentKey(agentSelector.value) || 'canteiro',
         config: { ...breoganConfig },
         runtime: {
             optimizing: runtimeHealth.optimizing,
@@ -104,13 +133,12 @@ function applyHostConfig(configPatch) {
         return;
     }
 
-    if (typeof configPatch.premiumUser === 'boolean') breoganConfig.premiumUser = configPatch.premiumUser;
     if (typeof configPatch.active === 'boolean') breoganConfig.active = configPatch.active;
     if (['analytical', 'creative', 'autonomous'].includes(configPatch.mode)) breoganConfig.mode = configPatch.mode;
     if (Number.isFinite(Number(configPatch.priority))) breoganConfig.priority = Number(configPatch.priority);
     if (Number.isFinite(Number(configPatch.memoryMb))) breoganConfig.memoryMb = Number(configPatch.memoryMb);
     if (Number.isFinite(Number(configPatch.tokenLimit))) breoganConfig.tokenLimit = Number(configPatch.tokenLimit);
-    if (configPatch.executionMode === 'edge' || configPatch.executionMode === 'simulation') breoganConfig.executionMode = configPatch.executionMode;
+    breoganConfig.executionMode = 'edge';
     if (typeof configPatch.functionUrl === 'string') breoganConfig.functionUrl = configPatch.functionUrl.trim();
     if (Number.isFinite(Number(configPatch.bridgePort))) breoganConfig.bridgePort = Number(configPatch.bridgePort);
     if (typeof configPatch.accessToken === 'string') breoganConfig.accessToken = configPatch.accessToken.trim();
@@ -130,8 +158,8 @@ function handleHostMessage(event) {
     }
 
     if (data.type === 'breogan-set-agent' && typeof data.payload?.agent === 'string') {
-        const requestedAgent = data.payload.agent;
-        if (agents[requestedAgent]) {
+        const requestedAgent = normalizeAgentKey(data.payload.agent);
+        if (requestedAgent && agents[requestedAgent]) {
             agentSelector.value = requestedAgent;
         }
         return;
@@ -156,8 +184,11 @@ function handleHostMessage(event) {
         if (typeof data.payload?.task === 'string') {
             userInput.value = data.payload.task;
         }
-        if (typeof data.payload?.agent === 'string' && agents[data.payload.agent]) {
-            agentSelector.value = data.payload.agent;
+        if (typeof data.payload?.agent === 'string') {
+            const requestedAgent = normalizeAgentKey(data.payload.agent);
+            if (requestedAgent && agents[requestedAgent]) {
+                agentSelector.value = requestedAgent;
+            }
         }
         integrationState.lastTaskId = data.payload?.taskId || null;
         handleTask();
@@ -177,7 +208,6 @@ function appendBreoganLog(text) {
 }
 
 function syncBreoganForm() {
-    premiumToggle.checked = breoganConfig.premiumUser;
     breoganActive.checked = breoganConfig.active;
     breoganMode.value = breoganConfig.mode;
     breoganPriority.value = String(breoganConfig.priority);
@@ -194,8 +224,162 @@ function syncBreoganForm() {
 function saveBreoganConfig() {
     localStorage.setItem(BREOGAN_CONFIG_KEY, JSON.stringify(breoganConfig));
     appendBreoganLog(
-        `Config guardada | premium=${breoganConfig.premiumUser} mode=${breoganConfig.mode} priority=${breoganConfig.priority} memory=${breoganConfig.memoryMb}MB tokens=${breoganConfig.tokenLimit} exec=${breoganConfig.executionMode}`
+        `Config guardada | mode=${breoganConfig.mode} priority=${breoganConfig.priority} memory=${breoganConfig.memoryMb}MB tokens=${breoganConfig.tokenLimit} exec=${breoganConfig.executionMode}`
     );
+    loadBreoganTasks();
+}
+
+async function resolveBreoganEndpoint() {
+    let resolvedEndpoint = breoganConfig.functionUrl;
+    let bridgeInfo = null;
+
+    if (!resolvedEndpoint && typeof window.debugBreoganCall === 'function') {
+        bridgeInfo = await window.debugBreoganCall('history', { source: 'tasks-panel' });
+        resolvedEndpoint = bridgeInfo.endpoint;
+    }
+
+    return { resolvedEndpoint, bridgeInfo };
+}
+
+function buildBreoganHeaders(resolvedEndpoint, bridgeInfo, includeJsonBody = false) {
+    const headers = {};
+    if (includeJsonBody) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    if (breoganConfig.accessToken) {
+        headers.Authorization = `Bearer ${breoganConfig.accessToken}`;
+    } else if ((bridgeInfo && bridgeInfo.isLocal) || isLocalBridgeEndpoint(resolvedEndpoint)) {
+        headers['x-breogan-bridge'] = 'local-dev';
+    } else {
+        throw new Error('Falta token JWT para execucion Edge.');
+    }
+
+    return headers;
+}
+
+function formatTaskDate(value) {
+    if (!value) {
+        return 'sen data';
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return 'sen data';
+    }
+
+    return date.toLocaleString();
+}
+
+function summarizeTaskText(value) {
+    if (typeof value !== 'string' || !value.trim()) {
+        return 'sen detalle';
+    }
+
+    return value.trim().slice(0, 140);
+}
+
+function extractTaskPrompt(task) {
+    return summarizeTaskText(task?.payload?.prompt || task?.payload?.data || '');
+}
+
+function extractTaskResult(task) {
+    const result = task?.result;
+    if (typeof result?.data === 'string') {
+        return summarizeTaskText(result.data);
+    }
+    if (typeof result?.answer === 'string') {
+        return summarizeTaskText(result.answer);
+    }
+    if (typeof result === 'string') {
+        return summarizeTaskText(result);
+    }
+    return 'sen resposta persistida';
+}
+
+function renderBreoganTasks(tasks) {
+    taskHistoryState.items = Array.isArray(tasks) ? tasks : [];
+    tasksList.innerHTML = '';
+
+    if (!taskHistoryState.items.length) {
+        const empty = document.createElement('div');
+        empty.className = 'task-item empty';
+        empty.textContent = 'Aínda non hai tarefas auditadas visibles para este contexto.';
+        tasksList.appendChild(empty);
+        return;
+    }
+
+    taskHistoryState.items.forEach((task) => {
+        const item = document.createElement('div');
+        item.className = 'task-item';
+
+        const status = typeof task.status === 'string' ? task.status : 'unknown';
+        const latency = typeof task.latency_ms === 'number' ? `${task.latency_ms.toFixed(2)}ms` : 'n/a';
+        const cost = task.estimated_cost !== null && task.estimated_cost !== undefined ? task.estimated_cost : 'n/a';
+
+        item.innerHTML = `
+            <div class="task-topline">
+                <span class="task-type">${task.task_type || 'unknown'}</span>
+                <span class="task-date">${formatTaskDate(task.created_at)}</span>
+            </div>
+            <div class="task-meta">status=${status} latency=${latency} cost=${cost}</div>
+            <div class="task-prompt"><strong>Petición:</strong> ${extractTaskPrompt(task)}</div>
+            <div class="task-result"><strong>Resultado:</strong> ${extractTaskResult(task)}</div>
+        `;
+
+        tasksList.appendChild(item);
+    });
+}
+
+async function loadBreoganTasks() {
+    if (!tasksStatus || !tasksList || taskHistoryState.loading) {
+        return;
+    }
+
+    taskHistoryState.loading = true;
+    tasksStatus.textContent = 'Sincronizando tarefas auditadas...';
+    if (refreshTasksBtn) {
+        refreshTasksBtn.disabled = true;
+    }
+
+    try {
+        const { resolvedEndpoint, bridgeInfo } = await resolveBreoganEndpoint();
+        if (!resolvedEndpoint) {
+            tasksStatus.textContent = 'Configura a URL da function para ver o historial de tarefas.';
+            renderBreoganTasks([]);
+            return;
+        }
+
+        const response = await fetch(`${resolvedEndpoint}?limit=8`, {
+            method: 'GET',
+            headers: buildBreoganHeaders(resolvedEndpoint, bridgeInfo, false)
+        });
+
+        let body = null;
+        try {
+            body = await response.json();
+        } catch (error) {
+            body = null;
+        }
+
+        if (!response.ok) {
+            throw new Error(body && body.error ? body.error : 'Non se puido cargar o historial de tarefas.');
+        }
+
+        const tasks = Array.isArray(body?.tasks) ? body.tasks : [];
+        renderBreoganTasks(tasks);
+        tasksStatus.textContent = tasks.length
+            ? `Última sincronización: ${new Date().toLocaleTimeString()} · ${tasks.length} tarefas.`
+            : 'Historial baleiro para este usuario/contexto.';
+    } catch (error) {
+        tasksStatus.textContent = `Erro ao cargar tarefas: ${error.message}`;
+        appendBreoganLog(`Erro cargando historial de tarefas: ${error.message}`);
+    } finally {
+        taskHistoryState.loading = false;
+        if (refreshTasksBtn) {
+            refreshTasksBtn.disabled = false;
+        }
+    }
 }
 
 function loadBreoganConfig() {
@@ -221,13 +405,12 @@ function loadBreoganConfig() {
 
     try {
         const parsed = JSON.parse(raw);
-        breoganConfig.premiumUser = Boolean(parsed.premiumUser);
         breoganConfig.active = Boolean(parsed.active);
         breoganConfig.mode = ['analytical', 'creative', 'autonomous'].includes(parsed.mode) ? parsed.mode : 'analytical';
         breoganConfig.priority = Number(parsed.priority) || 5;
         breoganConfig.memoryMb = Number(parsed.memoryMb) || 512;
         breoganConfig.tokenLimit = Number(parsed.tokenLimit) || 4096;
-        breoganConfig.executionMode = parsed.executionMode === 'edge' ? 'edge' : 'simulation';
+        breoganConfig.executionMode = 'edge';
         breoganConfig.functionUrl = typeof parsed.functionUrl === 'string' ? parsed.functionUrl : '';
         breoganConfig.bridgePort = Number(parsed.bridgePort) > 0 ? Number(parsed.bridgePort) : 8081;
         breoganConfig.accessToken = typeof parsed.accessToken === 'string' ? parsed.accessToken : '';
@@ -377,10 +560,10 @@ function buildFallbackResponse(agentKey, taskText) {
         if (isCollaborativeRequest(taskText)) {
             return [
                 'Activada orquestración multi-axente para auditoría de vulnerabilidades.',
-                'Coordinador: define alcance, ventá de execución e regras de non impacto.',
-                'Programador: prepara scripts de comprobación segura e recollida de evidencias.',
-                'Analista: clasifica riscos (OWASP/CVSS) e prioriza remediación.',
-                'Redactor: compón o informe executivo + técnico para entrega.',
+                'Canteiro: define execución técnica e intervención segura no sistema.',
+                'Arquiveiro: prepara contexto, trazabilidade e memoria da operación.',
+                'Vixiante: clasifica riscos, saúde e criterios de aprobación.',
+                'Breogan: consolida a resposta executiva e decide o seguinte paso.',
                 basePlan
             ].join('\n');
         }
@@ -389,34 +572,34 @@ function buildFallbackResponse(agentKey, taskText) {
     }
 
     switch (agentKey) {
-    case 'coder':
+    case 'canteiro':
         return [
             'Proposta técnica inicial preparada.',
             `Obxectivo: ${taskText}`,
             'Seguinte paso: definimos entrada/saída, validación e execución por fases con rollback seguro.'
         ].join('\n');
-    case 'writer':
+    case 'arquiveiro':
         return [
-            'Borrador operativo xerado.',
+            'Contexto operativo preparado.',
             `Tema: ${taskText}`,
-            'Podo entregalo en formato executivo, técnico ou mixto segundo audiencia.'
+            'Seguinte paso: consolidar memoria, feito recente e trazabilidade antes de executar cambios.'
         ].join('\n');
-    case 'analyst':
+    case 'vixiante':
         return isAuditRequest(taskText)
             ? buildAuditResponse(taskText, agents[agentKey].name)
             : `Análise inicial completada sobre: ${taskText}\nSeguinte paso: métricas, hipótese e plan de validación.`;
     default:
         if (isCollaborativeRequest(taskText)) {
             return [
-                'Coordinación de equipo activada.',
+                'Coordinación multi-axente activada.',
                 `Tarefa: ${taskText}`,
-                'Asignación: Programador (execución), Analista (validación), Redactor (entrega), Coordinador (seguimento).'
+                'Asignación: Canteiro (execución), Arquiveiro (contexto), Vixiante (validación), Breogan (orquestración).'
             ].join('\n');
         }
 
         return isAuditRequest(taskText)
             ? buildAuditResponse(taskText, agents[agentKey].name)
-            : `Recibido. Voy a coordinar esta tarea con el equipo especializado y concretar los siguientes pasos.`;
+            : `Recibido. Vou coordinar esta tarefa cos axentes activos e concretar os seguintes pasos.`;
     }
 }
 
@@ -439,9 +622,7 @@ async function buildHealthResponse(taskText, delegatedAgentName) {
 
     let serviceProbe = null;
     try {
-        serviceProbe = breoganConfig.executionMode === 'edge'
-            ? await callBreoganService('ecosystem-health', payload)
-            : await simulateBreoganService('ecosystem-health', payload);
+        serviceProbe = await callBreoganService('ecosystem-health', payload);
     } catch (error) {
         serviceProbe = {
             latencyMs: null,
@@ -483,8 +664,7 @@ function getEcosystemServiceTargets(resolvedEndpoint) {
         { name: 'BREOGAN Supabase API', url: 'http://127.0.0.1:8081/auth/v1/health', mode: 'cors', fallbackNoCors: true },
         { name: 'Frontend', url: window.location.origin, mode: 'cors' },
         { name: 'BFF API', url: 'http://localhost:8082/health', mode: 'cors' },
-        { name: 'Native Engine', url: 'http://localhost:8088/engine/health', mode: 'cors', fallbackNoCors: true },
-        { name: 'RaptorCom', url: 'http://localhost:8090/health', mode: 'cors', fallbackNoCors: true },
+        { name: 'Native Engine', url: 'http://localhost:8088/v1/health', mode: 'cors', fallbackNoCors: true },
         { name: 'Ollama', url: 'http://localhost:11434/api/version', mode: 'cors' }
     ];
 }
@@ -644,30 +824,14 @@ function isLocalBridgeEndpoint(urlText) {
 }
 
 async function callBreoganService(taskType, payload) {
-    let resolvedEndpoint = breoganConfig.functionUrl;
-    let bridgeInfo = null;
-
-    if (!resolvedEndpoint && typeof window.debugBreoganCall === 'function') {
-        bridgeInfo = await window.debugBreoganCall(taskType, payload);
-        resolvedEndpoint = bridgeInfo.endpoint;
-    }
+    const { resolvedEndpoint, bridgeInfo } = await resolveBreoganEndpoint();
 
     if (!resolvedEndpoint) {
         throw new Error('Falta URL da function. Configuraa no panel ou define BREOGAN_SUPABASE_URL.');
     }
 
     const startedAt = performance.now();
-    const headers = {
-        'Content-Type': 'application/json'
-    };
-
-    if (breoganConfig.accessToken) {
-        headers.Authorization = `Bearer ${breoganConfig.accessToken}`;
-    } else if ((bridgeInfo && bridgeInfo.isLocal) || isLocalBridgeEndpoint(resolvedEndpoint)) {
-        headers['x-breogan-bridge'] = 'local-dev';
-    } else {
-        throw new Error('Falta token JWT para execucion Edge.');
-    }
+    const headers = buildBreoganHeaders(resolvedEndpoint, bridgeInfo, true);
 
     const response = await fetch(resolvedEndpoint, {
         method: 'POST',
@@ -708,31 +872,8 @@ async function callBreoganService(taskType, payload) {
     };
 }
 
-function simulateBreoganService(taskType, payload) {
-    const simulatedLatency = 450 + Math.round(Math.random() * 1300);
-    pushLatency(simulatedLatency);
-
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            resolve({
-                raw: {
-                    result: {
-                        status: 'success',
-                        data: `Simulacion Breogan para tarefa ${taskType}`,
-                        payloadEcho: payload
-                    },
-                    latency: simulatedLatency,
-                    cost: (simulatedLatency * 0.0001).toFixed(5)
-                },
-                latencyMs: simulatedLatency,
-                cost: (simulatedLatency * 0.0001).toFixed(5)
-            });
-        }, simulatedLatency);
-    });
-}
-
 async function runContextOptimization(triggerLatencyMs) {
-    if (runtimeHealth.optimizing || !breoganConfig.active || !breoganConfig.premiumUser) {
+    if (runtimeHealth.optimizing || !breoganConfig.active) {
         return;
     }
 
@@ -772,9 +913,7 @@ async function runPulseTest() {
 
     try {
         const payload = { data: 'Probando nucleo de soberania Breogan' };
-        const serviceResult = breoganConfig.executionMode === 'edge'
-            ? await callBreoganService('stress-test', payload)
-            : await simulateBreoganService('stress-test', payload);
+        const serviceResult = await callBreoganService('stress-test', payload);
 
         const latency = Number(serviceResult.latencyMs).toFixed(2);
         const cost = serviceResult.cost !== null && serviceResult.cost !== undefined
@@ -783,6 +922,7 @@ async function runPulseTest() {
 
         pulseResult.textContent = `Latencia: ${latency}ms | Custo: ${cost} CELT`;
         appendBreoganLog(`Pulse OK | latencia=${latency}ms cost=${cost}`);
+        await loadBreoganTasks();
     } catch (error) {
         pulseResult.textContent = `Erro: ${error.message}`;
         appendBreoganLog(`Pulse ERRO | ${error.message}`);
@@ -826,14 +966,14 @@ function updateAgentStatus(agentId, status) {
 
 async function handleTask() {
     const text = userInput.value.trim();
-    const agentKey = agentSelector.value;
+    const agentKey = normalizeAgentKey(agentSelector.value) || 'canteiro';
     const agent = agents[agentKey];
     const effectiveTaskText = resolveEffectiveTask(text);
 
     if (!text) return;
 
     // Mensaje del usuario
-    addMessage(text, 'Tú', 'user');
+    addMessage(text, 'Operador', 'user');
     userInput.value = '';
     postToHost('breogan-task-started', {
         taskId: integrationState.lastTaskId,
@@ -848,16 +988,20 @@ async function handleTask() {
 
     const shouldDelegateToBreogan =
         breoganConfig.active &&
-        (breoganConfig.premiumUser || isAuditRequest(effectiveTaskText) || isHealthRequest(effectiveTaskText) || estimateComplexity(effectiveTaskText));
+        (isAuditRequest(effectiveTaskText) || isHealthRequest(effectiveTaskText) || estimateComplexity(effectiveTaskText) || effectiveTaskText.length > 0);
 
     if (shouldDelegateToBreogan) {
         updateAgentStatus('breogan', 'working');
-        appendBreoganLog(`Delegacion activada para tarea compleja (${agent.name}).`);
+        appendBreoganLog(`Delegación activada para tarefa real (${agent.name}).`);
     }
     
     if (shouldDelegateToBreogan) {
         try {
-            const taskType = agentKey === 'analyst' ? 'analysis' : agentKey === 'coder' ? 'automation' : 'heavy-compute';
+            const taskType = agentKey === 'vixiante'
+                ? 'analysis'
+                : agentKey === 'arquiveiro'
+                    ? 'memory'
+                    : 'automation';
             const payload = {
                 prompt: effectiveTaskText,
                 delegatedAgent: agentKey,
@@ -867,9 +1011,7 @@ async function handleTask() {
                 memoryMb: breoganConfig.memoryMb
             };
 
-            const serviceResult = breoganConfig.executionMode === 'edge'
-                ? await callBreoganService(taskType, payload)
-                : await simulateBreoganService(taskType, payload);
+            const serviceResult = await callBreoganService(taskType, payload);
 
             const realEdgeNarrative = extractBreoganResultText(serviceResult);
             const response = isHealthRequest(text)
@@ -878,10 +1020,11 @@ async function handleTask() {
                     ? buildAuditResponse(effectiveTaskText, agent.name)
                     : (realEdgeNarrative || buildBreoganResponse(effectiveTaskText, agent.name));
             addMessage(response, 'Breogan', 'breogan');
-            addMessage('Coordinacion completada. El equipo ya tiene el plan de ejecucion.', 'Coordinador', 'agent');
+            addMessage('Coordinación completada. Os axentes xa teñen o plan operativo.', 'Sistema', 'agent');
             appendBreoganLog(
                 `Tarefa completada | latencia=${Number(serviceResult.latencyMs).toFixed(2)}ms cost=${serviceResult.cost || 'n/a'}`
             );
+            await loadBreoganTasks();
             await maybeRunSelfHeal(Number(serviceResult.latencyMs));
         } catch (error) {
             addMessage(`Erro Breogan: ${error.message}`, 'Sistema', 'system');
@@ -926,10 +1069,6 @@ saveBreoganConfigBtn.addEventListener('click', () => {
     saveBreoganConfig();
 });
 
-premiumToggle.addEventListener('change', (event) => {
-    breoganConfig.premiumUser = event.target.checked;
-});
-
 breoganActive.addEventListener('change', (event) => {
     breoganConfig.active = event.target.checked;
 });
@@ -956,7 +1095,7 @@ breoganTokenLimit.addEventListener('change', (event) => {
 });
 
 breoganExecutionMode.addEventListener('change', (event) => {
-    breoganConfig.executionMode = event.target.value === 'edge' ? 'edge' : 'simulation';
+    breoganConfig.executionMode = 'edge';
 });
 
 breoganFunctionUrl.addEventListener('change', (event) => {
@@ -974,6 +1113,7 @@ breoganAccessToken.addEventListener('change', (event) => {
 });
 
 runPulseTestBtn.addEventListener('click', runPulseTest);
+refreshTasksBtn.addEventListener('click', loadBreoganTasks);
 
 userInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -983,7 +1123,8 @@ userInput.addEventListener('keypress', (e) => {
 });
 
 loadBreoganConfig();
-appendBreoganLog('Orquestador disponible para enrutamiento premium.');
+appendBreoganLog('Orquestrador dispoñible para cableado operativo real.');
+loadBreoganTasks();
 initEmbeddedIntegration();
 window.addEventListener('message', handleHostMessage);
 postToHost('breogan-ready', collectUiState());

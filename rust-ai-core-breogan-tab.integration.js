@@ -2,8 +2,8 @@
   const DEFAULTS = {
     containerSelector: '#breogan-tab-container',
     iframeId: 'breogan-tab-frame',
-    breoganUrl: 'https://7904ab75.breogan-public.pages.dev/?embed=1&host=rust-ai-core',
-    targetOrigin: 'https://7904ab75.breogan-public.pages.dev'
+    breoganUrl: 'https://breogan.celtiaia.com/?embed=1&host=rust-ai-core',
+    targetOrigin: 'https://breogan.celtiaia.com'
   };
 
   function createIframe(options) {

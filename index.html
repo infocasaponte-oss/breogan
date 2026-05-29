@@ -14,27 +14,26 @@
         <h1>
             <span class="brand-title">
                 <img src="celtia-icon.png" alt="Icono 3D CeltIA" class="brand-icon" />
-                <span>CeltIA Agent Core</span>
+                <span>Axente BREOGAN</span>
             </span>
         </h1>
-        <p>Sistema de Gestión de Agentes Especializados</p>
+        <p>Control operativo de axentes soberanos e automatismos reais</p>
     </header>
 
     <main>
         <section class="chat-container">
             <div id="chat-box" class="chat-box">
-                <div class="message system">Sistema listo. Selecciona un agente e introduce una tarea.</div>
+                <div class="message system">Núcleo listo. Escolle un axente real e introduce a tarefa.</div>
             </div>
             
             <div class="input-area">
                 <select id="agent-selector" aria-label="Seleccion de agente">
-                    <option value="coord">Coordinador (General)</option>
-                    <option value="coder">Especialista en Código</option>
-                    <option value="writer">Redactor Creativo</option>
-                    <option value="analyst">Analista de Datos</option>
+                    <option value="canteiro">Canteiro · automatismos</option>
+                    <option value="arquiveiro">Arquiveiro · memoria</option>
+                    <option value="vixiante">Vixiante · sondas e auditoría</option>
                 </select>
-                <textarea id="user-input" placeholder="Escribe la tarea para el agente..."></textarea>
-                <button id="send-btn">Enviar Tarea</button>
+                <textarea id="user-input" placeholder="Describe a tarefa operativa que queres lanzar..."></textarea>
+                <button id="send-btn">Executar tarefa</button>
             </div>
         </section>
 
@@ -42,36 +41,26 @@
             <div class="agent-card" id="card-breogan">
                 <div class="status-dot"></div>
                 <h3>Breogan Engine</h3>
-                <p>Orquestador premium para tareas complejas.</p>
+                <p>Orquestrador premium para coordinación soberana.</p>
             </div>
-            <div class="agent-card" id="card-coord">
+            <div class="agent-card" id="card-canteiro">
                 <div class="status-dot online"></div>
-                <h3>Coordinador</h3>
-                <p>Gestión de flujo y delegación.</p>
+                <h3>Canteiro</h3>
+                <p>Execución técnica, builder e automatismos.</p>
             </div>
-            <div class="agent-card" id="card-coder">
+            <div class="agent-card" id="card-arquiveiro">
                 <div class="status-dot"></div>
-                <h3>Programador</h3>
-                <p>JS, HTML, Python y Debugging.</p>
+                <h3>Arquiveiro</h3>
+                <p>Memoria, contexto e trazabilidade operativa.</p>
             </div>
-            <div class="agent-card" id="card-writer">
+            <div class="agent-card" id="card-vixiante">
                 <div class="status-dot"></div>
-                <h3>Redactor</h3>
-                <p>Copywriting y corrección de estilo.</p>
-            </div>
-            <div class="agent-card" id="card-analyst">
-                <div class="status-dot"></div>
-                <h3>Analista</h3>
-                <p>Procesamiento de datos y lógica.</p>
+                <h3>Vixiante</h3>
+                <p>Sondas, saúde do ecosistema e auditoría.</p>
             </div>
 
             <section class="breogan-panel">
                 <h3>Configuracion Breogan</h3>
-
-                <label class="inline-toggle" for="premium-toggle">
-                    <span>Usuario premium</span>
-                    <input id="premium-toggle" type="checkbox" />
-                </label>
 
                 <label class="inline-toggle" for="breogan-active">
                     <span>Motor activo</span>
@@ -91,13 +80,12 @@
                 <label for="breogan-memory">Memoria asignada (MB): <strong id="memory-value">512</strong></label>
                 <input id="breogan-memory" type="range" min="256" max="4096" step="256" value="512" />
 
-                <label for="breogan-token-limit">Limite de tokens premium</label>
+                <label for="breogan-token-limit">Limite de tokens</label>
                 <input id="breogan-token-limit" type="number" min="256" max="32768" step="256" value="4096" />
 
                 <label for="breogan-execution-mode">Modo de execucion</label>
                 <select id="breogan-execution-mode">
-                    <option value="simulation">Simulacion local</option>
-                    <option value="edge">Supabase Edge Function</option>
+                    <option value="edge">Bridge local / Edge real</option>
                 </select>
 
                 <label for="breogan-function-url">URL da function</label>
@@ -120,8 +108,19 @@
                     <p id="pulse-result" class="pulse-result">Sen probas executadas.</p>
                 </section>
 
+                <section class="breogan-tasks" aria-label="Tarefas auditadas de Breogan">
+                    <div class="tasks-head">
+                        <h4>Tarefas auditadas</h4>
+                        <button id="refresh-tasks" type="button">Refrescar</button>
+                    </div>
+                    <p id="tasks-status" class="tasks-status">Sen sincronizar.</p>
+                    <div id="tasks-list" class="tasks-list">
+                        <div class="task-item empty">Aínda non hai tarefas cargadas.</div>
+                    </div>
+                </section>
+
                 <div class="breogan-log" id="breogan-log">
-                    <div class="log-line">[sistema] Breogan panel listo.</div>
+                    <div class="log-line">[sistema] Panel operativo listo.</div>
                 </div>
             </section>
         </section>

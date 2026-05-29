@@ -14,8 +14,70 @@ type BreoganPayload = {
 type ActorContext = {
   userId: string | null;
   isPremium: boolean;
+  isAdmin: boolean;
   authMode: "jwt" | "bridge";
 };
+
+function jsonResponse(payload: unknown, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+async function resolveActor(req: Request, supabaseClient: ReturnType<typeof createClient> | null, allowBridgeBypass: boolean) {
+  const bridgeHeader = req.headers.get("x-breogan-bridge") ?? "";
+  const bridgeUserId = req.headers.get("x-breogan-user-id")?.trim() ?? "";
+
+  if (allowBridgeBypass && bridgeHeader === "local-dev") {
+    return {
+      userId: bridgeUserId || null,
+      isPremium: true,
+      isAdmin: true,
+      authMode: "bridge",
+    } satisfies ActorContext;
+  }
+
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const jwt = authHeader.startsWith("Bearer ")
+    ? authHeader.replace("Bearer ", "").trim()
+    : "";
+
+  if (!jwt) {
+    return jsonResponse({ error: "Acceso non autorizado" }, 401);
+  }
+
+  if (!supabaseClient) {
+    throw new Error("Supabase client is required for authenticated requests");
+  }
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabaseClient.auth.getUser(jwt);
+
+  if (authError || !user) {
+    return jsonResponse({ error: "Non autorizado" }, 401);
+  }
+
+  const { data: profile, error: profileError } = await supabaseClient
+    .from("profiles")
+    .select("subscription_level, role")
+    .eq("id", user.id)
+    .single();
+
+  if (profileError) {
+    throw new Error(`Profile lookup failed: ${profileError.message}`);
+  }
+
+  const isAdmin = profile?.role === "admin";
+  return {
+    userId: user.id,
+    isPremium: profile?.subscription_level === "premium" || isAdmin,
+    isAdmin,
+    authMode: "jwt",
+  } satisfies ActorContext;
+}
 
 async function runOllamaInference(taskType: string, payload: Record<string, unknown>) {
   const ollamaBaseUrl = (Deno.env.get("OLLAMA_BASE_URL") ?? "http://127.0.0.1:11434").replace(/\/$/, "");
@@ -129,72 +191,84 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isLocalBridgeRequest(req: Request, allowBridgeBypass: boolean) {
+  return allowBridgeBypass && (req.headers.get("x-breogan-bridge") ?? "") === "local-dev";
+}
+
+function getLocalTaskCachePath() {
+  return Deno.env.get("BREOGAN_LOCAL_TASK_CACHE") ?? `${Deno.cwd()}/.breogan-task-cache.json`;
+}
+
+async function readLocalTaskCache() {
+  try {
+    const raw = await Deno.readTextFile(getLocalTaskCachePath());
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+async function writeLocalTaskCache(tasks: unknown[]) {
+  await Deno.writeTextFile(getLocalTaskCachePath(), JSON.stringify(tasks, null, 2));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
+    const allowBridgeBypass = (Deno.env.get("BREOGAN_DEV_BYPASS_AUTH") ?? "false") === "true";
+    const localBridgeRequest = isLocalBridgeRequest(req, allowBridgeBypass);
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const allowBridgeBypass = (Deno.env.get("BREOGAN_DEV_BYPASS_AUTH") ?? "false") === "true";
-    const bridgeHeader = req.headers.get("x-breogan-bridge") ?? "";
-    const bridgeUserId = req.headers.get("x-breogan-user-id")?.trim() ?? "";
 
-    if (!supabaseUrl || !serviceRoleKey) {
+    if (!localBridgeRequest && (!supabaseUrl || !serviceRoleKey)) {
       throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars");
     }
 
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const jwt = authHeader.startsWith("Bearer ")
-      ? authHeader.replace("Bearer ", "").trim()
-      : "";
+    const supabaseClient = localBridgeRequest ? null : createClient(supabaseUrl, serviceRoleKey);
 
-    const supabaseClient = createClient(supabaseUrl, serviceRoleKey);
+    const actorOrResponse = await resolveActor(req, supabaseClient, allowBridgeBypass);
+    if (actorOrResponse instanceof Response) {
+      return actorOrResponse;
+    }
 
-    let actor: ActorContext;
+    const actor = actorOrResponse;
 
-    if (allowBridgeBypass && bridgeHeader === "local-dev") {
-      actor = {
-        userId: bridgeUserId || null,
-        isPremium: true,
-        authMode: "bridge",
-      };
-    } else {
-      if (!jwt) {
-        return new Response(JSON.stringify({ error: "Acceso non autorizado" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+    if (req.method === "GET") {
+      const url = new URL(req.url);
+      const requestedLimit = Number(url.searchParams.get("limit") ?? "8");
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 25)
+        : 8;
+
+      if (actor.authMode === "bridge") {
+        const localTasks = await readLocalTaskCache();
+        return jsonResponse({ tasks: localTasks.slice(0, limit) });
       }
 
-      const {
-        data: { user },
-        error: authError,
-      } = await supabaseClient.auth.getUser(jwt);
+      let query = supabaseClient!
+        .from("breogan_tasks")
+        .select("id, user_id, task_type, status, latency_ms, estimated_cost, payload, result, created_at")
+        .order("created_at", { ascending: false })
+        .limit(limit);
 
-      if (authError || !user) {
-        return new Response(JSON.stringify({ error: "Non autorizado" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      if (!actor.isAdmin && actor.userId) {
+        query = query.eq("user_id", actor.userId);
       }
 
-      const { data: profile, error: profileError } = await supabaseClient
-        .from("profiles")
-        .select("subscription_level, role")
-        .eq("id", user.id)
-        .single();
-
-      if (profileError) {
-        throw new Error(`Profile lookup failed: ${profileError.message}`);
+      const { data: tasks, error: tasksError } = await query;
+      if (tasksError) {
+        throw new Error(`Tasks query failed: ${tasksError.message}`);
       }
 
-      actor = {
-        userId: user.id,
-        isPremium: profile?.subscription_level === "premium" || profile?.role === "admin",
-        authMode: "jwt",
-      };
+      return jsonResponse({ tasks: tasks ?? [] });
+    }
+
+    if (req.method !== "POST") {
+      return jsonResponse({ error: "Method not allowed" }, 405);
     }
 
     const body = (await req.json()) as BreoganPayload;
@@ -216,6 +290,25 @@ serve(async (req) => {
     const latencyMs = performance.now() - startTime;
     const estimatedCost = actor.isPremium ? 0 : Number((latencyMs * 0.00005).toFixed(5));
 
+    const localTaskRecord = {
+      id: crypto.randomUUID(),
+      user_id: actor.userId,
+      task_type: taskType,
+      status: "completed",
+      latency_ms: Number(latencyMs.toFixed(2)),
+      estimated_cost: estimatedCost,
+      payload,
+      result,
+      created_at: new Date().toISOString(),
+    };
+
+    if (actor.authMode === "bridge") {
+      const localTasks = await readLocalTaskCache();
+      localTasks.unshift(localTaskRecord);
+      await writeLocalTaskCache(localTasks.slice(0, 25));
+      return jsonResponse(localTaskRecord, 200);
+    }
+
     const auditInsert = {
       user_id: actor.userId,
       task_type: taskType,
@@ -226,7 +319,7 @@ serve(async (req) => {
       result,
     };
 
-    const { data: taskRecord, error: auditError } = await supabaseClient
+    const { data: taskRecord, error: auditError } = await supabaseClient!
       .from("breogan_tasks")
       .insert(auditInsert)
       .select()
@@ -236,7 +329,7 @@ serve(async (req) => {
       throw new Error(`Audit insert failed: ${auditError.message}`);
     }
 
-    await supabaseClient.from("diagnostics").insert({
+    await supabaseClient!.from("diagnostics").insert({
       level: "info",
       message: `Breogan Task: ${taskType}`,
       details: {
@@ -249,15 +342,9 @@ serve(async (req) => {
       },
     });
 
-    return new Response(JSON.stringify(taskRecord), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
-    });
+    return jsonResponse(taskRecord, 200);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: message }, 400);
   }
 });
